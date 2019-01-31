@@ -22,15 +22,18 @@ def loadData(path):
     return origin_data
 
 
-def processingData(data):
+def standProcessingData(train_data, test_data):
     """
        processing data, encoding label, one-hot feature, normalized
        return processing_data
     """
+    train_data_size = len(train_data)
+    data = np.row_stack([train_data, test_data])
     # label encoding, index -> 14
     labels = data[:, 14]
     le = preprocessing.LabelEncoder()
     le.fit(labels)
+    #print(le.classes_)
     labels = le.transform(labels).astype(int)
     
     # normalized, indexs -> [2, 10, 11, 12]
@@ -50,19 +53,24 @@ def processingData(data):
         le.fit(features[:, feature])
         features[:, feature] = le.transform(features[:, feature])
         categorical_names[feature] = le.classes_
-        
-    posi_indexs, nega_indexs = getPosiNegaSample(labels)
+    
+    train_fs = features[:train_data_size, :]
+    train_lb = labels[:train_data_size]
+    test_fs = features[train_data_size:, :]
+    test_lb = labels[train_data_size:]
+      
+    posi_indexs, nega_indexs = getPosiNegaSample(train_lb)
     # split posi sample, split nega sample
-    posi_features = features[posi_indexs, :]
-    posi_labels = labels[posi_indexs]
-    nega_features = features[nega_indexs, :]
-    nega_labels = labels[nega_indexs]
+    posi_features = train_fs[posi_indexs, :]
+    posi_labels = train_lb[posi_indexs]
+    nega_features = train_fs[nega_indexs, :]
+    nega_labels = train_lb[nega_indexs]
     
     # one hot train
     encoder = preprocessing.OneHotEncoder(categorical_features=categorical_features)
     encoder.fit(features)
-    all_feature = encoder.transform(features).astype(float)
-    return all_feature, labels, posi_features, posi_labels, nega_features, nega_labels, encoder
+    test_fs = encoder.transform(test_fs).astype(float)
+    return test_fs, test_lb, posi_features, posi_labels, nega_features, nega_labels, encoder
 #    posi_features = encoder.transform(posi_features).astype(float)
 #    nega_features = encoder.transform(nega_features).astype(float)
 #    
@@ -73,10 +81,59 @@ def processingData(data):
 #    return posi_features, posi_labels, nega_features, nega_labels
 
 
-def getData(path):
-    origin_data = loadData(path)
-    all_feature, labels, posi_features, posi_labels, nega_features, nega_labels, one_hot_encoder = processingData(origin_data)
-    return all_feature, labels, posi_features, posi_labels, nega_features, nega_labels, one_hot_encoder
+def nstandProcessingData(train_data, test_data):
+    """
+       processing data, encoding label
+       return processing_data
+    """
+    train_data_size = len(train_data)
+    data = np.row_stack([train_data, test_data])
+    # label encoding, index -> 14
+    labels = data[:, 14]
+    le = preprocessing.LabelEncoder()
+    le.fit(labels)
+    #print(le.classes_)
+    labels = le.transform(labels).astype(int)
+    
+    # cover string to num, indexs -> [0, 1, 3, 4, 5, 6, 7, 8, 9, 13]
+    categorical_features = [0, 1, 3, 4, 5, 6, 7, 8, 9, 13]
+    features = data[:, :-1]
+    categorical_names = {}
+    # label encoding
+    for feature in categorical_features:
+        le = preprocessing.LabelEncoder()
+        le.fit(features[:, feature])
+        features[:, feature] = le.transform(features[:, feature])
+        categorical_names[feature] = le.classes_
+    
+    train_fs = features[:train_data_size, :].astype(float)
+    train_lb = labels[:train_data_size]
+    test_fs = features[train_data_size:, :].astype(float)
+    test_lb = labels[train_data_size:]
+      
+    posi_indexs, nega_indexs = getPosiNegaSample(train_lb)
+    # split posi sample, split nega sample
+    posi_features = train_fs[posi_indexs, :]
+    posi_labels = train_lb[posi_indexs]
+    nega_features = train_fs[nega_indexs, :]
+    nega_labels = train_lb[nega_indexs]
+    
+#    print(posi_features.shape)
+#    print(posi_features[0])
+#    print(nega_features.shape)
+#    print(nega_features[0])
+#    print(test_fs.shape)
+#    print(test_lb[0])
+    
+    return test_fs, test_lb, posi_features, posi_labels, nega_features, nega_labels, None
+
+
+def getData(train_path, test_path, is_nor_oh=True):
+    train_data = loadData(train_path)
+    test_data = loadData(test_path)
+    test_fs, test_lb, posi_features, posi_labels, nega_features, nega_labels, one_hot_encoder \
+    = standProcessingData(train_data, test_data) if is_nor_oh else nstandProcessingData(train_data, test_data)
+    return test_fs, test_lb, posi_features, posi_labels, nega_features, nega_labels, one_hot_encoder
 
 
 def getPosiNegaSample(all_labels):
@@ -126,8 +183,9 @@ def sample(posi_features, posi_labels, nega_features, nega_labels, one_hot_encod
     # split train set and test set
     train_features, test_features, train_labels, test_labels = model_selection.train_test_split(features, labels, train_size=train_size)
     # one hot
-    train_features = one_hot_encoder.transform(train_features).astype(float)
-    test_features = one_hot_encoder.transform(test_features).astype(float)
+    if one_hot_encoder is not None:
+        train_features = one_hot_encoder.transform(train_features).astype(float)
+        test_features = one_hot_encoder.transform(test_features).astype(float)
     return train_features, train_labels, test_features, test_labels
 
 
@@ -149,7 +207,7 @@ def train(train_fetures, train_labels, test_features, test_labels, all_features,
     
     all_pred = rf.predict(all_features)
     all_auc = metrics.roc_auc_score(all_lables, all_pred)
-    print("all set auc -> %f" % all_auc)
+    print("real set auc -> %f" % all_auc)
     
     predict_func = lambda x: rf.predict_proba(x).astype(float)
     test_pred_label = predict_func(test_features)[:,1]
@@ -158,14 +216,14 @@ def train(train_fetures, train_labels, test_features, test_labels, all_features,
     
     all_pred_label = predict_func(all_features)[:,1]
     all_ks = ks(all_pred_label, all_lables)
-    print("all set ks -> %f" % all_ks)
+    print("real set ks -> %f" % all_ks)
     
     return [test_auc, all_auc, test_ks, all_ks]
 
 
-def run(path):
+def run(train_path, test_path, is_nor_oh):
     np.random.seed(13)
-    all_feature, labels, posi_features, posi_labels, nega_features, nega_labels, one_hot_encoder = getData(path)
+    test_fs, test_lb, posi_features, posi_labels, nega_features, nega_labels, one_hot_encoder = getData(train_path, test_path, is_nor_oh)
     lab_smaple_rate = [
         ("posi:nega -> 1:1", 1.0/2, 2),
         ("posi:nega -> 1:5", 1.0/6, 6),
@@ -177,24 +235,31 @@ def run(path):
     
     lab_id = 1
     print("-----------------------fix model train sample count-----------------------")
-    model_train_sample_size = 20000
-    for (key, rate, _sample_up) in lab_smaple_rate:
-        print("*****************Lab %d, %s****************" % (lab_id, key))
-        train_features, train_labels, test_features, test_labels = sample(posi_features, posi_labels, nega_features, nega_labels, one_hot_encoder, model_train_sample_size, rate, train_size)
-        eval = train(train_features, train_labels, test_features, test_labels, all_feature, labels)
-        print(eval)
-        lab_id += 1
+    model_train_sample_size = [20000, 30000]
+    for sample_size in model_train_sample_size:
+        for (key, rate, _sample_up) in lab_smaple_rate:
+            print("*****************Lab %d, %s, sample_size->%d****************" % (lab_id, key, sample_size))
+            train_features, train_labels, test_features, test_labels = sample(posi_features, posi_labels, nega_features, nega_labels, one_hot_encoder, sample_size, rate, train_size)
+            eval = train(train_features, train_labels, test_features, test_labels, test_fs, test_lb)
+            print(eval)
+            lab_id += 1
     
     print("-----------------------model train sample count up by sample rate-----------------------")
-    model_train_sample_size = 1000
-    for (key, rate, sample_up) in lab_smaple_rate:
-        print("*****************Lab %d, %s****************" % (lab_id, key))
-        train_features, train_labels, test_features, test_labels = sample(posi_features, posi_labels, nega_features, nega_labels, one_hot_encoder, model_train_sample_size*sample_up, rate, train_size)
-        eval = train(train_features, train_labels, test_features, test_labels, all_feature, labels)
-        print(eval)
-        lab_id += 1
+    model_train_sample_size = [1000, 3000, 5000]
+    for sample_size in model_train_sample_size:
+        for (key, rate, sample_up) in lab_smaple_rate:
+            print("*****************Lab %d, %s, posi sample size->%d****************" % (lab_id, key, sample_size))
+            train_features, train_labels, test_features, test_labels = sample(posi_features, posi_labels, nega_features, nega_labels, one_hot_encoder, sample_size*sample_up, rate, train_size)
+            eval = train(train_features, train_labels, test_features, test_labels, test_fs, test_lb)
+            print(eval)
+            lab_id += 1
     return
 
 if __name__ == '__main__':
-    path = u"C:/Users/davewli/Desktop/adult.data"
-    run(path)
+    train_path = u"C:/Users/davewli/Desktop/Adult/adult.data"
+    test_path = u"C:/Users/davewli/Desktop/Adult/adult.test"
+    # data normalized, one hot
+    # run(train_path, test_path, True)
+    
+    # data not normalized and one hot
+    run(train_path, test_path, False)
